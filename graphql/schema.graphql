@@ -1,0 +1,509 @@
+"A datetime string with format `Y-m-d H:i:s`, e.g. `2018-05-23 13:43:32`."
+scalar DateTime
+    @scalar(class: "Nuwave\\Lighthouse\\Schema\\Types\\Scalars\\DateTime")
+
+scalar Upload
+    @scalar(class: "Nuwave\\Lighthouse\\Schema\\Types\\Scalars\\Upload")
+
+"Indicates what fields are available at the top level of a query operation."
+type Query {
+    "Find a single user by an identifying attribute."
+    user(
+        "Search by primary key."
+        id: ID @eq @rules(apply: ["prohibits:email", "required_without:email"])
+
+        "Search by email address."
+        email: String
+            @eq
+            @rules(apply: ["prohibits:id", "required_without:id", "email"])
+    ): User @find
+
+    "List multiple users."
+    users(
+        "Filters by name. Accepts SQL LIKE wildcards `%` and `_`."
+        name: String @where(operator: "like")
+    ): [User!]! @paginate(defaultCount: 10)
+}
+
+"Account of a person who uses this application."
+type User {
+    "Unique primary key."
+    id: ID!
+
+    "Non-unique name."
+    name: String!
+
+    "Unique email address."
+    email: String!
+
+    "When the email was verified."
+    email_verified_at: DateTime
+
+    "When the account was created."
+    created_at: DateTime!
+
+    "When the account was last updated."
+    updated_at: DateTime!
+
+    roles: [String!]!
+}
+
+type Studio {
+    id: ID!
+    name: String!
+    code: String!
+    description: String
+    capacity: Int
+    size_sqm: Float
+    slug: String!
+    thumbnail: String
+    thumbnail_url: String
+    sort_order: Int!
+    is_active: Boolean!
+    photos: [StudioPhoto!]! @hasMany
+    pricing_tiers: [PricingTier!]! @hasMany(relation: "pricingTiers")
+    addons: [Addon!]! @belongsToMany
+    cretime: DateTime
+    modtime: DateTime
+}
+
+type StudioPhoto {
+    id: ID!
+    path: String!
+    url: String!
+    sort_order: Int!
+}
+
+type Bundle {
+    id: ID!
+    code: String!
+    name: String!
+    slug: String!
+    description: String
+    thumbnail: String
+    studio: Studio! @belongsTo
+    pricing_tier: PricingTier! @belongsTo(relation: "pricingTier")
+    addons: [BundleAddon!]! @hasMany(relation: "bundleAddons")
+    bundle_price: Int!
+    normal_price: Int!
+    discount_amount: Int!
+    valid_from: DateTime
+    valid_until: DateTime
+    quota_limit: Int
+    quota_period: String
+    quota_remaining: Int
+    is_active: Boolean!
+    is_sellable: Boolean!
+    sort_order: Int!
+}
+
+type BundleAddon {
+    id: ID!
+    addon: Addon! @belongsTo
+    duration_minutes: Int
+    normal_price: Int!
+}
+
+input BundleAddonInput {
+    addon_id: ID!
+    duration_minutes: Int
+}
+
+input BundleInput {
+    name: String!
+    description: String
+    studio_id: ID!
+    pricing_tier_id: ID!
+    bundle_price: Int!
+    valid_from: String
+    valid_until: String
+    quota_limit: Int
+    quota_period: String
+    sort_order: Int
+    is_active: Boolean
+    addons: [BundleAddonInput!]!
+}
+
+type PricingTier {
+    id: ID!
+    studio: Studio! @belongsTo
+    duration_minutes: Int!
+    price: Int!
+    is_active: Boolean!
+}
+
+type Addon {
+    id: ID!
+    name: String!
+    icon: String
+    pricing_type: String!
+    flat_price: Int
+    is_active: Boolean!
+    studios: [Studio!]! @belongsToMany
+    prices: [AddonPrice!]! @hasMany
+    resources: [Resource!]! @hasMany
+}
+
+type AddonPrice {
+    id: ID!
+    addon: Addon! @belongsTo
+    duration_minutes: Int!
+    price: Int!
+    is_active: Boolean!
+}
+
+type Resource {
+    id: ID!
+    addon: Addon! @belongsTo
+    name: String!
+    code: String!
+    sort_order: Int!
+    is_active: Boolean!
+    cretime: DateTime
+    modtime: DateTime
+}
+
+type Booking {
+    id: ID!
+    code: String!
+    customer_name: String!
+    customer_wa: String!
+    start_time: DateTime!
+    end_time: DateTime!
+    duration_minutes: Int!
+    status: String!
+    payment_method: String
+    payment_status: String!
+    payment_url: String
+    studio_price_at_booking: Int!
+    addon_total: Int!
+    grand_total: Int!
+    bundle: Bundle @belongsTo(relation: "bundle")
+    bundle_name_at_booking: String
+    bundle_price_at_booking: Int
+    discount_total: Int!
+    payment_expires_at: DateTime
+    studio: Studio! @belongsTo(relation: "studio")
+    pricing_tier: PricingTier @belongsTo(relation: "pricingTier")
+    addons: [BookingAddon!]! @hasMany(relation: "addons")
+}
+
+type BookingAddon {
+    id: ID!
+    duration_minutes: Int
+    price_at_booking: Int!
+    is_bundle_item: Boolean!
+    addon: Addon! @belongsTo
+    resource: Resource @belongsTo
+}
+
+type BookingSlot {
+    start_time: DateTime!
+    end_time: DateTime!
+    available: Boolean!
+    reason: String
+}
+
+type AddonAvailability {
+    addon_id: ID!
+    available: Boolean!
+    resource_name: String
+    available_resource_count: Int!
+    next_available_at: DateTime
+    reason: String
+}
+
+input BookingAddonInput {
+    addon_id: ID!
+    duration_minutes: Int
+}
+
+extend type Query {
+    studios: [Studio!]! @all @guard @can(ability: "manage-master-data")
+    studio(id: ID! @eq): Studio @find @guard @can(ability: "manage-master-data")
+
+    addons: [Addon!]! @all @guard @can(ability: "manage-master-data")
+    resources: [Resource!]! @all @guard @can(ability: "manage-master-data")
+
+    bookingAvailability(
+        studio_id: ID!
+        date: String!
+        duration_minutes: Int!
+    ): [BookingSlot!]!
+        @field(resolver: "App\\GraphQL\\Queries\\BookingAvailability")
+        @guard
+
+    addonAvailability(
+        studio_id: ID!
+        addon_id: ID!
+        start_time: String!
+        duration_minutes: Int!
+    ): AddonAvailability
+        @field(resolver: "App\\GraphQL\\Queries\\AddonAvailability")
+        @guard
+
+    bookingAddonAvailability(
+        studio_id: ID!
+        start_time: String!
+        duration_minutes: Int!
+    ): [AddonAvailability!]!
+        @field(resolver: "App\\GraphQL\\Queries\\BookingAddonAvailability")
+        @guard
+
+    bookings: [Booking!]!
+        @all(model: "App\\Modules\\Booking\\Models\\Booking")
+        @guard
+
+    bundles: [Bundle!]!
+        @field(resolver: "App\\GraphQL\\Mutations\\BundleMutations@all")
+        @guard
+        @can(ability: "manage-master-data")
+
+    sellableBundles: [Bundle!]!
+        @field(resolver: "App\\GraphQL\\Queries\\SellableBundles")
+        @guard
+
+    bundleAvailability(
+        bundle_id: ID!
+        date: String!
+        exclude_booking_id: ID
+    ): [BookingSlot!]!
+        @field(resolver: "App\\GraphQL\\Queries\\BundleAvailability")
+        @guard
+}
+
+extend type Mutation {
+    createManualBooking(
+        studio_id: ID
+        pricing_tier_id: ID
+        customer_name: String!
+        customer_wa: String!
+        start_time: String!
+        payment_method: String = "cash"
+        addons: [BookingAddonInput!]
+        bundle_id: ID
+    ): Booking
+        @field(
+            resolver: "App\\GraphQL\\Mutations\\BookingMutations@createManual"
+        )
+        @guard
+
+    updateManualBooking(
+        id: ID!
+        studio_id: ID
+        pricing_tier_id: ID
+        customer_name: String!
+        customer_wa: String!
+        start_time: String!
+        payment_method: String = "cash"
+        addons: [BookingAddonInput!]
+        bundle_id: ID
+    ): Booking
+        @field(
+            resolver: "App\\GraphQL\\Mutations\\BookingMutations@updateManual"
+        )
+        @guard
+
+    deleteBooking(id: ID!): Booking
+        @field(resolver: "App\\GraphQL\\Mutations\\BookingMutations@delete")
+        @guard
+
+    cancelBooking(id: ID!): Booking
+        @field(resolver: "App\\GraphQL\\Mutations\\BookingMutations@cancel")
+        @guard
+
+    createBundle(input: BundleInput!): Bundle!
+        @field(resolver: "App\\GraphQL\\Mutations\\BundleMutations@create")
+        @guard
+        @can(ability: "manage-master-data")
+
+    updateBundle(id: ID!, input: BundleInput!): Bundle!
+        @field(resolver: "App\\GraphQL\\Mutations\\BundleMutations@update")
+        @guard
+        @can(ability: "manage-master-data")
+
+    deleteBundle(id: ID!): Bundle!
+        @field(resolver: "App\\GraphQL\\Mutations\\BundleMutations@delete")
+        @guard
+        @can(ability: "manage-master-data")
+
+    reorderBundles(items: [ReorderInput!]!): [Bundle!]!
+        @field(resolver: "App\\GraphQL\\Mutations\\BundleMutations@reorder")
+        @guard
+        @can(ability: "manage-master-data")
+
+    createStudio(
+        name: String!
+        description: String
+        capacity: Int
+        size_sqm: Float
+        slug: String
+        thumbnail: Upload
+        photos: [Upload!]
+        is_active: Boolean = true
+        sort_order: Int = 0
+    ): Studio
+        @field(resolver: "App\\GraphQL\\Mutations\\StudioMutations@create")
+        @guard
+        @can(ability: "manage-master-data")
+
+    updateStudio(
+        id: ID!
+        name: String
+        description: String
+        capacity: Int
+        size_sqm: Float
+        slug: String
+        thumbnail: Upload
+        photos: [Upload!]
+        is_active: Boolean
+        sort_order: Int
+    ): Studio
+        @field(resolver: "App\\GraphQL\\Mutations\\StudioMutations@update")
+        @guard
+        @can(ability: "manage-master-data")
+
+    uploadStudioPhotos(studio_id: ID!, photos: [Upload!]!): Studio
+        @field(
+            resolver: "App\\GraphQL\\Mutations\\StudioMutations@uploadPhotos"
+        )
+        @guard
+        @can(ability: "manage-master-data")
+
+    deleteStudioPhoto(id: ID!): Studio
+        @field(resolver: "App\\GraphQL\\Mutations\\StudioMutations@deletePhoto")
+        @guard
+        @can(ability: "manage-master-data")
+
+    deleteStudio(id: ID! @eq): Studio
+        @field(resolver: "App\\GraphQL\\Mutations\\StudioMutations@delete")
+        @guard
+        @can(ability: "manage-master-data")
+
+    createPricingTier(
+        studio_id: ID!
+        duration_minutes: Int!
+        price: Int!
+    ): PricingTier
+        @field(resolver: "App\\GraphQL\\Mutations\\PricingTierMutations@create")
+        @guard
+        @can(ability: "manage-master-data")
+
+    updatePricingTier(
+        id: ID!
+        duration_minutes: Int!
+        price: Int!
+    ): PricingTier
+        @field(resolver: "App\\GraphQL\\Mutations\\PricingTierMutations@update")
+        @guard
+        @can(ability: "manage-master-data")
+
+    deletePricingTier(id: ID!): PricingTier
+        @field(resolver: "App\\GraphQL\\Mutations\\PricingTierMutations@delete")
+        @guard
+        @can(ability: "manage-master-data")
+
+    createAddon(
+        name: String!
+        icon: String!
+        pricing_type: String!
+        flat_price: Int
+        studio_ids: [ID!]
+    ): Addon
+        @field(resolver: "App\\GraphQL\\Mutations\\AddonMutations@create")
+        @guard
+        @can(ability: "manage-master-data")
+
+    upsertAddonPrice(
+        addon_id: ID!
+        duration_minutes: Int!
+        price: Int!
+    ): AddonPrice
+        @field(resolver: "App\\GraphQL\\Mutations\\AddonPriceMutations@upsert")
+        @guard
+        @can(ability: "manage-master-data")
+
+    deleteAddonPrice(id: ID!): AddonPrice
+        @field(resolver: "App\\GraphQL\\Mutations\\AddonPriceMutations@delete")
+        @guard
+        @can(ability: "manage-master-data")
+
+    updateAddon(
+        id: ID!
+        name: String
+        icon: String
+        pricing_type: String
+        flat_price: Int
+        studio_ids: [ID!]
+    ): Addon
+        @field(resolver: "App\\GraphQL\\Mutations\\AddonMutations@update")
+        @guard
+        @can(ability: "manage-master-data")
+
+    deleteAddon(id: ID!): Addon
+        @field(resolver: "App\\GraphQL\\Mutations\\AddonMutations@delete")
+        @guard
+        @can(ability: "manage-master-data")
+
+    createResource(
+        addon_id: ID!
+        name: String!
+        is_active: Boolean = true
+        sort_order: Int = 0
+    ): Resource
+        @field(resolver: "App\\GraphQL\\Mutations\\ResourceMutations@create")
+        @guard
+        @can(ability: "manage-master-data")
+
+    updateResource(
+        id: ID!
+        addon_id: ID
+        name: String
+        is_active: Boolean
+        sort_order: Int
+    ): Resource
+        @field(resolver: "App\\GraphQL\\Mutations\\ResourceMutations@update")
+        @guard
+        @can(ability: "manage-master-data")
+
+    deleteResource(id: ID!): Resource
+        @field(resolver: "App\\GraphQL\\Mutations\\ResourceMutations@delete")
+        @guard
+        @can(ability: "manage-master-data")
+
+    reorderResources(items: [ReorderInput!]!): [Resource!]!
+        @field(resolver: "App\\GraphQL\\Mutations\\ResourceMutations@reorder")
+        @guard
+        @can(ability: "manage-master-data")
+}
+
+type AuthPayload {
+    user: User!
+}
+
+extend type Mutation {
+    createUser(name: String!, email: String!, password: String!): User
+        @field(resolver: "App\\GraphQL\\Mutations\\CreateUser")
+        @throttle(maxAttempts: 5, decayMinutes: 1)
+
+    login(email: String!, password: String!): AuthPayload
+        @field(resolver: "App\\GraphQL\\Mutations\\Login")
+        @throttle(maxAttempts: 5, decayMinutes: 1)
+}
+
+extend type Mutation {
+    syncAddonStudios(addon_id: ID!, studio_ids: [ID!]!): Addon
+        @field(resolver: "App\\GraphQL\\Mutations\\SyncAddonStudios")
+}
+
+extend type Mutation {
+    reorderStudios(items: [ReorderInput!]!): [Studio!]!
+        @field(resolver: "App\\GraphQL\\Mutations\\ReorderStudios")
+        @guard
+        @can(ability: "manage-master-data")
+}
+
+input ReorderInput {
+    id: ID!
+    sort_order: Int!
+}
